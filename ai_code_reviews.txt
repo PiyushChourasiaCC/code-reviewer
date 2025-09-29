@@ -1,0 +1,170 @@
+
+=== Review: AIAgenticUtility.cls ===
+Here's a risk summary for your `AIAgenticUtility.cls` code, broken down by the requested best-practice and security standards checks:
+
+---
+
+## Risk Analysis Table
+
+| #  | Risk/Check Area                               | Count/Present?  | Notes / Examples                                                                                                                                         | Potential Fix / Mitigation                                                                                     | Checks for Review        |
+|----|-----------------------------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|--------------------------|
+| 1  | Exception logging (ExceptionLog)              | 0 – **NOT Present**  | Caught exceptions are returned via `errorResponse()` (setting status=error in response), but not logged to a persistent ExceptionLog.                    | Add ExceptionLog insertion (custom object, platform event, or System.debug+platform event) in all catch blocks.| Are error cases traceable?|
+| 2  | Exception handling best practices             | Partial          | Almost all try/catch blocks **swallow exceptions** or return objects, but don’t propagate, log, or differentiate exception types. See `getPromptOptions`, `getVectorStoreIds`, etc. |  Log all exceptions. At minimum, add a comment for "fail silent" blocks, and propagate when needed.            | Does every catch at least log?|
+| 3  | Global interface/classes                      | **YES**          | Utility class is `global with sharing`; inner classes not global. Apex interface usage in dynamic method execution (`AIAgenticInterface`).               | Evaluate if `global` is needed; prefer `public` if not used in managed package externally.                     | Limit class visibility?  |
+| 4  | Jira/Work ID in comments                      | **NO**           | No comments with Jira/Work/Incid numbers observed in the code. Good for cleanliness.                                                                   | N/A – not present                                                                                             | Should requirements be referenced?|
+| 5  | Hardcoded IDs                                 | **NO**           | No hardcoded SF IDs found. ID use (e.g. UserInfo.getUserId(), record loopups) are all dynamic or query-based.                                            | N/A                                                                                                            | Are all IDs dynamic?     |
+| 6  | Bulkification (DML & Query in loops)          | **MOSTLY OK**    | No queries inside loops via direct iteration. Some DMLs in `for` loop of `invokeAgent` for `AI_Usage_Tracking__c` update, but objects collected in a list first. | Consider possible list growth for `upsertDML` and Governor Limit safety for future scale-out.                  | DML safely outside loops?|
+| 7  | Security: Dynamic SOQL/safe variable binding  | **PARTIAL RISK** | Dynamic SOQL in `getDynamicQueryResults`, `fetchUser`. Variables are parsed/inserted in query using string replacement, not bind variables!             | Always use bind variables or at least strict single-quote wrapping and input escaping (ideally bind syntax).   | Any SOQL injection risk? |
+| 8  | Security: FLS/CRUD checking                   | **YES**          | DML/queries are wrapped sometimes with `FLSCheck.getInstance()`. However, some points do direct query/DMLs (customs only).                              | Audit for gaps; Review FLSCheck implementation for security strength.                                          | Is DML access controlled?|
+| 9  | Security: Dynamic instantiation               | **RISK**         | Use `Type.forName` on Apex class name from database. No input validation; could execute any class if data altered.                                      | Validate/whitelist allowed class names before instantiation.                                                   | Is `Type.forName` safe?  |
+| 10 | Swallowing exceptions silently                | **YES**          | Functions like `getPromptOptions` and `getVectorStoreIds` catch Exception and just return default/empty objects. No error surfaced/logged.               | At minimum, use `System.debug`+ ExceptionLog. Ideally, error is surfaced to calling context or admin.         | Do silent failures mask issues?|
+| 11 | Use of "with sharing"                         | **YES**          | The class is declared "with sharing". Good default for enforcing row-level security.                                                             | Good. Consider "without sharing" only for well-justified system/data operations.                               | Are sharing rules enforced?|
+| 12 | Label/text best practices                     | **YES**          | UI/text messages (system prompts, error messages) are all label-driven; little to no hardcoded user-facing text except one constant.                   | Good                                                                                                           | Are all messages customizable?|
+| 13 | Tech debt (complexity, comments, TODOs)       | **SOME**         | No TODO/FIXME/JIRA flags. Methods getting lengthy (e.g. `invokeAgent`, 100+ LOC). Some blocks nested heavily, lots of try/catch.                       | Refactor large methods, split logic for clarity, enforce max indentation/nesting.                              | Are functions maintainable?    |
+| 14 | Use of static limits and resource control     | **OK**           | List sizes/iteration controlled. Some queries use LIMITs, but consider more explicit checks for very large object loads in future.                      | Add limits/guards for future proofing if called in true bulk/batch.                                            | Are there unbounded queries?|
+| 15 | Salesforce platform API version/language      | **OK**           | No deprecated calls visible, all methods use modern syntax/APIs.                                                                                        | N/A                                                                                                            | Platform compatibility?   |
+
+---
+
+## **Summary Key Points / Recommendations:**
+
+1. **Add ExceptionLog Logging:**  
+   Every catch(Exception ex) should record details persistently. Consider a custom object or Platform Event for "ExceptionLog".
+
+2. **Avoid Dynamic SOQL Injection:**  
+   Refactor all `.replace()` string-based SOQL to bind variables or very thoroughly sanitize/escape input.
+
+3. **Harden Dynamic Type Instantiation:**  
+   Never instantiate classes from unchecked DB data. Add allowed-list logic or clear validation.
+
+4. **Document/Handle Silent Catch:**  
+   For each silent catch, use System.debug at a minimum, and add a code comment about why error is ignored.
+
+5. **Consider Splitting Large Methods:**  
+   For testability and maintainability, methods like `invokeAgent` should be split into smaller units.
+
+6. **Revisit Visibility:**  
+   If the class is not part of a managed package or not exposed to external apps, consider reducing global to public.
+
+## **Quick Compliance Checklist:**
+- [ ] All exceptions logged
+- [ ] No queries built with unsafe unbound dynamic SOQL
+- [ ] No hardcoded IDs
+- [ ] No DML in loops
+- [ ] All UI text in labels
+- [ ] All class/instantiation via whitelist
+- [ ] "with sharing" present
+- [ ] FLS/CRUD checked before DML
+- [ ] No Jira/ticket leakage in prod code
+
+Let me know if you want a code-level diff/PR suggestion or want to see a sample ExceptionLog handler implementation for this project.
+
+=== Review: AIAgenticFunctionHandler.cls ===
+Certainly! Here’s a summary table covering the risks, notes, potential fixes, and checks found in the provided `AIAgenticFunctionHandler.cls` code, based on your criteria.
+
+---
+
+### Salesforce Apex Code Review Table
+
+| #  | Risk/Issue                                   | Count | Notes/Example                                                  | Potential Fix/Guidance                                                                                | Check/Finding                                  |
+|----|----------------------------------------------|-------|----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|------------------------------------------------|
+| 1  | Exception Logging with ExceptionLog          | 0     | No call to `ExceptionLog.add` or similar in any method         | Add logging in the catch blocks for audit and debugging                                              | **Missing** (add ExceptionLog usage)           |
+| 2  | Exception Handling Consistency               | 2     | `createAccount`, `createContact` use custom serialization; others use `errorResponse()` | Standardize error handling via helper, always return same JSON structure                             | Some inconsistency                             |
+| 3  | Exception Stack Trace Visibility             | 1     | `System.debug(e.getStackTraceString())` in `createContact`     | **Never log stack in prod**. Use proper logging or error propagation                                 | Potential info exposure in debug logs          |
+| 4  | Global Interface Usage                       | 0     | Implements `AIAgenticInterface`, assumed local; not global     | Confirm that interface is not `global` unless required                                               | Appears safe                                   |
+| 5  | Presence of Jira Numbers in Comments         | 0     | No Jira #s or references in comments                           | Add reference to Jira/user story IDs if policy required                                               | Lacking traceability/reference                 |
+| 6  | Hardcoded IDs                               | 0     | No hardcoded Salesforce IDs found                              | Best practice; dynamic object/field use is OK                                                        | **Pass**                                      |
+| 7  | SOQL Injection Risk                         | 6+    | Dynamic SOQL built from parameters (all `find*/fetch*` methods) | **HIGH RISK**: Validate & escape all user input, use bind variables, avoid dynamic query if possible | Major security vulnerability                   |
+| 8  | Bulkification                               | ?     | All methods process single parameter set; no bulk/batch logic  | Consider extending for bulk operations, if called in loops; not triggered context                    | Some risk if called in bulk context            |
+| 9  | Field Level Security (FLS)                  | 2     | Used (`FLSCheck.getInstance()`) for `Case`, `CaseComment` only | Apply FLS check for all objects being DML’d (Account, Contact)                                       | FLS not universal                              |
+| 10 | Object Permissions Check                     | Most  | Used before querying/creating objects except in some `fetch*`  | Standardize permission checks before any DML or query                                                | Some inconsistencies                           |
+| 11 | Magic Strings or Enum Risks                  | Many  | `"read"`, `"create"` etc as parameter values in methods        | Use `enum`s or constants rather than magic strings                                                   | Tech debt: risk of typo/maintenance            |
+| 12 | Parameter Injection via `Map<String,Object>` | Many  | All CRUD/query methods accept arbitrary parameter map           | Input validation & whitelisting field names and values                                               | **Major risk:** security, data integrity       |
+| 13 | No CRUD/FLS Check for Account, Contact DML   | 2     | `createAccount`, `createContact` skip `hasObjectPerm` and FLS  | Must add checks before DML for all objects                                                           | Tech debt & compliance gap                     |
+| 14 | Comments Adherence, Code Doc Quality         | Good  | Good method docstrings                                         | No fix needed                                                                                        | **Pass**                                      |
+| 15 | Security: Excess Exposure/Info Leakage       | Some  | Query results, error messages may leak platform internals      | Do not return internal exceptions directly to front end                                              | Slight risk, minimize info in errors           |
+| 16 | Use of with sharing                         | 1     | Declared at class header: `public with sharing`                | N/A                                                                                                 | **Pass**                                      |
+| 17 | Hardcoded Field List in Queries              | Many  | Field lists in select statements                               | Consider making query fields dynamic/configurable, but minimal risk                                  | Tech debt (optional)                           |
+
+---
+
+### Priority Focus (Action Items)
+
+1. **High Severity:**
+   - **SOQL Injection:** ALL dynamic query building is at high risk. Only allow whitelisted fields and apply correct escaping or use bind variables where possible.
+   - **No Exception Logging:** Add error logging to an ExceptionLog object or class—even just `System.debug` is not sufficient for production-grade error tracking.
+   - **Parameter Validation:** Strongly validate input maps for supported fields and data types to minimize security risk.
+   - **CRUD/FLS Checks Needed:** For ALL object DML (Account, Contact), not just `Case`.
+
+2. **Medium:**
+   - Standardize exception handling: use the same error mechanism everywhere.
+   - Remove or restrict stack trace logging.
+   - Consider JIRA/story traceability if relevant to your org.
+
+3. **Minor/Tech Debt:**
+   - Avoid magic strings for permissions.
+   - Consider code for bulkification or document that only single-record ops are supported.
+   - Optionally allow for dynamic or configurable fields in query (if security can be assured).
+
+---
+
+## Code Review Recommendations
+
+- **Refactor dynamic SOQL**: Only build queries with allowed fields, and use `String.escapeSingleQuotes()` for user-supplied values at a minimum—but prefer field whitelisting and bind variables.
+- **Centralize error handling**: Always use the same error method, and log all exceptions to a persistent store.
+- **Enforce CRUD/FLS**: Use utilities for every object’s DML, not just Case/CaseComment.
+- **Sanitize/validate input**: Only allow explicitly permitted field names/values from the incoming `parameters`.
+- **General**: Do not expose stack traces to users and enhance security posture by validating all entry points for risk.
+
+---
+
+If you’d like specific example fixes, input sanitization, or improved code snippets, **please specify the target area(s)** and I can provide focused recommendations!
+
+=== Review: AIAgenticInterface.cls ===
+Here's a summary assessment of the provided **AIAgenticInterface.cls** file. Your code is an *interface* rather than an implementation class, so the risk surface is primarily in the design/standards choices, not runtime/logic issues.
+
+Below is the requested analysis:
+
+| **Risk Count** | **Notes**                                                                                                       | **Potential Fix**                                                                                                                         | **Checks**                                                                                          |
+|----------------|-----------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| 0              | No usage of ExceptionLog; but as an interface, this is expected.                                                | Ensure implementing classes handle exception logging as needed.                                                                           | Review all implementations for ExceptionLog/additional logging.                                      |
+| 1              | Exception handling not present (by design in interfaces).                                                        | Document that implementations must perform robust exception handling and proper error signaling.                                          | Implementation contracts should clearly state exception behavior and expected logging.               |
+| 1              | Interface is declared as `public`, not `global` (good). No unnecessary exposure.                                | Maintain scope as `public` unless cross-namespace/global use is required.                                                                | ❌ No risk found here; just ensure future scope increases are justified (global should be avoided).   |
+| 0              | No JIRA numbers observed in comments.                                                                           | Consider referencing JIRA/ticket numbers in code changes for traceability, especially for critical updates.                              | Add JIRA IDs to comments where relevant for future changes.                                          |
+| 1              | Salesforce standards: No hardcoded IDs or unbulkified queries appear; sample block uses dynamic SOQL & good map usage. | No immediate fix; but highlight when sample is copied into implementations, dynamic SOQL/SOSL must be scrutinized to avoid injection.     | Always sanitize inputs when composing dynamic queries.                                                |
+| 1              | Sample code (commented) concatenates user-supplied values into an SOSL query (`searchTerm`, `fieldToSearchIn`).  | Always escape/sanitize or use bind variables (SOSL/where applicable) to avoid injection vulnerabilities.                                 | Ensure safe usage in implementations; add comments about input sanitization in interface itself.      |
+| 0              | Tech debt: file is well-documented, but commented method may encourage code duplication, mild risk.              | Consider refactoring generic doc examples into a base implementation or documented utility class.                                        | Monitor for redundant implementations across consumer classes.                                        |
+| 0              | No direct security risk in interface; warning warranted for dynamic queries in comments/sample.                 | Add documentation warning about best practices for dynamic query composition in sample doc blocks.                                        | Add such notes into interface/classes for future maintainers.                                        |
+
+### Key Points
+
+- **Exception logging/handling:** Not possible in interfaces, but clarify requirements in documentation or interface contract (JavaDoc).
+- **Global classes:** *Not global*—good. `public` is correct for internal org use.
+- **JIRA numbers in comments:** None found. Not required, but could help future traceability.
+- **Salesforce coding standards:** No hardcoded IDs or DML/queries (in interface). Sample code builds queries with proper patterns, but it risks SOQL/SOSL injection.
+- **Tech Debt or Security Risk:**  
+  - **Dynamic query composition** in the sample code carries risk if copy-pasted into real code.
+  - **No direct security issue**, but a caution **should be documented or enforced for all implementations**.
+
+---
+
+**Summary Table**
+
+| Risk Count | Notes                                                                           | Potential Fix                                                        | Checks                                             |
+|------------|---------------------------------------------------------------------------------|-----------------------------------------------------------------------|----------------------------------------------------|
+| 1 (minor)  | Interface only—no logging/exception handling. Implementations must be careful.  | Specify exception/logging contract.                                  | Review all implementing classes.                   |
+| 1 (minor)  | Dynamic query example in doc block. Could lead to injection if copied as-is.    | Add warning about user input sanitization in comments/documentation.  | Input sanitization for dynamic query construction. |
+| 0          | No hardcoded IDs, good scope, follows Apex standards otherwise.                 | --                                                                    | --                                                 |
+| 0          | No JIRA numbers in comments. Could be added for traceability.                   | Optionally reference JIRA/ticket numbers in future code changes.      | --                                                 |
+
+---
+
+### Recommendations:
+
+- **Add clear notes in the interface Javadoc:** Specify that implementations *must* perform exception handling and input sanitization for dynamic queries.
+- **Audit all implementations** of this interface for proper:  
+  a) Exception logging/handling  
+  b) SOQL/SOSL injection safety  
+- **No direct risk in this interface,** but sample code should be accompanied by strong warnings.
+
+Let me know if you'd like a checklist for reviewing implementing classes!
