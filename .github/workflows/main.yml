@@ -38,8 +38,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      - name: Install OpenAI
+        run: pip install openai
       - name: Run code reviewer
-        run: python openai_pp.py
+        run: python code-reviewer.py
 
   deploy-staging:
     needs: [build-and-test, lint, security-scan, code-review]
@@ -57,3 +59,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Deployment to Production
         run: echo "Your deployment to production script goes here..."
+Man
