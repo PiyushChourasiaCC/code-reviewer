@@ -59,4 +59,3 @@ jobs:
       - uses: actions/checkout@v4
       - name: Deployment to Production
         run: echo "Your deployment to production script goes here..."
-Man
